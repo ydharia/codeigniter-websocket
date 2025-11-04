@@ -75,6 +75,12 @@ class Codeigniter_websocket
 	protected $config = array();
 
 	/**
+	 * SSL Config vars
+	 * @var array
+	 */
+	protected $ssl = array();
+
+	/**
 	 * Define allowed callbacks
 	 * @var array
 	 */
@@ -121,6 +127,7 @@ class Codeigniter_websocket
 
 		// Assign Timer Interval value to class var
 		$this->timer_interval = (!empty($this->config['codeigniter_websocket']['timer_interval'])) ? $this->config['codeigniter_websocket']['timer_interval'] : 1;
+		$this->ssl = (!empty($this->config['codeigniter_websocket']['ssl'])) ? $this->config['codeigniter_websocket']['ssl'] : array();
 	}
 
 	/**
@@ -138,7 +145,8 @@ class Codeigniter_websocket
 				)
 			),
 			$this->port,
-			$this->host
+			$this->host,
+			$this->ssl
 		);
 
 		//If you want to use timer
