@@ -36,5 +36,7 @@
   },
   "support": {
     "email": "taki.elias@gmail.com"
-  }
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
 }
