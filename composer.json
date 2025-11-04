@@ -22,9 +22,15 @@
   ],
   "require": {
     "php": ">=5.4.0",
-    "cboden/ratchet": "^0.4.1",
+    "cboden/ratchet": "dev-master",
     "textalk/websocket": "^1.2"
   },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/ydharia/Websocket.git"
+    }
+  ],
   "extra": {
     "installer-name": "codeigniter-websocket"
   },
