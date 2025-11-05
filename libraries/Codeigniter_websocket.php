@@ -2,6 +2,8 @@
 defined('BASEPATH') OR exit('No direct script access allowed');
 
 // Namespaces
+use React\EventLoop\LoopInterface;
+use React\EventLoop\Factory as LoopFactory;
 use Ratchet\Http\HttpServer;
 use Ratchet\Server\IoServer;
 use Ratchet\WebSocket\WsServer;
@@ -75,10 +77,13 @@ class Codeigniter_websocket
 	protected $config = array();
 
 	/**
-	 * SSL Config vars
+	 * Wss SSL vars
 	 * @var array
 	 */
 	protected $ssl = array();
+	public $server;
+	public $server_class_obj;
+	public $wssobj;
 
 	/**
 	 * Define allowed callbacks
@@ -138,11 +143,16 @@ class Codeigniter_websocket
 	public function run()
 	{
 		// Initiliaze all the necessary class
-		$server = IoServer::factory(
+		$this->server_class_obj = new Server();
+		$this->wssobj = new WsServer(
+			$this->server_class_obj
+		);
+
+		$loop = LoopFactory::create();
+
+		$this->server = IoServer::factory(
 			new HttpServer(
-				new WsServer(
-					new Server()
-				)
+				$this->wssobj
 			),
 			$this->port,
 			$this->host,
@@ -150,8 +160,9 @@ class Codeigniter_websocket
 		);
 
 		//If you want to use timer
+		$this->wssobj->enableKeepAlive($this->server->loop, 5);
 		if ($this->timer != false) {
-			$server->loop->addPeriodicTimer($this->timer_interval, function () {
+			$this->server->loop->addPeriodicTimer($this->timer_interval, function () {
 				if (!empty($this->callback['citimer'])) {
 					call_user_func_array($this->callback['citimer'], array(date('d-m-Y h:i:s a', time())));
 				}
@@ -160,7 +171,7 @@ class Codeigniter_websocket
 		}
 
 		// Run the socket connection !
-		$server->run();
+		$this->server->run();
 	}
 
 	/**
@@ -207,7 +218,7 @@ class Server implements MessageComponentInterface
 	 * List of subscribers (associative array)
 	 * @var array
 	 */
-	protected $subscribers = array();
+	public $subscribers = array();
 
 	/**
 	 * Class constructor
@@ -291,8 +302,9 @@ class Server implements MessageComponentInterface
 				if (!empty($this->CI->codeigniter_websocket->callback['auth'])) {
 
 					// Call user personnal callback
-					$auth = call_user_func_array($this->CI->codeigniter_websocket->callback['auth'],
-						array($datas));
+					$datas->resourceId = $client->resourceId;
+					$auth = call_user_func_array($this->CI->codeigniter_websocket->callback['auth'], array($datas));
+					$event = call_user_func_array($this->CI->codeigniter_websocket->callback['event'], array($datas));
 
 					// Verify authentication
 
@@ -305,6 +317,12 @@ class Server implements MessageComponentInterface
 
 					// Add UID to associative array of subscribers
 					$client->subscriber_id = $auth;
+					$client->user_type = isset($datas->user_type) ? $datas->user_type : "";
+					$client->system_id = isset($datas->system_id) ? $datas->system_id : "";
+					$client->current_url = isset($datas->current_url) ? $datas->current_url : "";
+					$client->current_method = isset($datas->current_method) ? $datas->current_method : "";
+					$client->visit_time = date("Y-m-d H:i:s");
+					$client->visit_timestamp = time();
 
 					if ($this->CI->codeigniter_websocket->auth) {
 						$data = json_encode(array("type" => "token", "token" => AUTHORIZATION::generateToken($client->resourceId)));
@@ -411,7 +429,7 @@ class Server implements MessageComponentInterface
 
 							// Broadcast to single user
 							if (!empty($datas->recipient_id)) {
-								if ($user->subscriber_id == $datas->recipient_id) {
+								if (isset($user->subscriber_id) && $user->subscriber_id == $datas->recipient_id) {
 									$this->send_message($user, $message, $client);
 									break;
 								}
@@ -430,6 +448,150 @@ class Server implements MessageComponentInterface
 					}
 				}
 
+			}
+
+			if (!empty($datas->type) && $datas->type == 'get_connected_list') {
+
+				$pass = true;
+
+				if ($this->CI->codeigniter_websocket->auth) {
+
+					if (!valid_jwt($datas->token)) {
+						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
+						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+						// Closing client connexion with error code "CLOSE_ABNORMAL"
+						$client->close(1006);
+						$pass = false;
+					}
+				}
+
+				if ($pass) {
+					if (!empty($message)) {
+						$list = array();
+						foreach ($this->clients as $user) {
+							if ($datas->message != "" && $datas->message != NULL) {
+								if (isset($user->system_id) && trim($datas->message) == trim($user->system_id)) {
+									if (isset($user->subscriber_id)) {
+										$user_info = array();
+										if (isset($user->WebSocket)) {
+											$user_info["WebSocket"] = $user->WebSocket;
+										} else {
+											$user_info["WebSocket"] = "";
+										}
+										if (isset($user->remoteAddress)) {
+											$user_info["remoteAddress"] = $user->remoteAddress;
+										} else {
+											$user_info["remoteAddress"] = "";
+										}
+										if (isset($user->subscriber_id)) {
+											$user_info["WebSocket"] = $user->subscriber_id;
+										} else {
+											$user_info["WebSocket"] = "";
+										}
+										if (isset($user->resourceId)) {
+											$user_info["resourceId"] = $user->resourceId;
+										} else {
+											$user_info["resourceId"] = "";
+										}
+										if (isset($user->system_id)) {
+											$user_info["system_id"] = $user->system_id;
+										} else {
+											$user_info["system_id"] = "";
+										}
+										if (isset($user->user_type)) {
+											$user_info["user_type"] = $user->user_type;
+										} else {
+											$user_info["user_type"] = "";
+										}
+										if (isset($user->current_url)) {
+											$user_info["current_url"] = $user->current_url;
+										} else {
+											$user_info["current_url"] = "";
+										}
+										if (isset($user->current_method)) {
+											$user_info["current_method"] = $user->current_method;
+										} else {
+											$user_info["current_method"] = "";
+										}
+										if (isset($user->visit_time)) {
+											$user_info["visit_time"] = $user->visit_time;
+										} else {
+											$user_info["visit_time"] = "";
+										}
+										if (isset($user->visit_timestamp)) {
+											$user_info["visit_timestamp"] = $user->visit_timestamp;
+										} else {
+											$user_info["visit_timestamp"] = "";
+										}
+										$list[$user->subscriber_id] = $user_info;
+									}
+									// $list[$user->subscriber_id] = array("WebSocket" => $user->WebSocket, "remoteAddress" => $user->remoteAddress, "subscriber_id" => $user->subscriber_id, "resourceId" => $user->resourceId, "system_id" => $user->system_id, "user_type" => $user->user_type, "current_url" => $user->current_url, "current_method" => $user->current_method, "visit_time" => $user->visit_time, "visit_timestamp" => $user->visit_timestamp);
+									// output('info', "Single Info");
+									// output('info', $datas->message);
+									// output('info', json_encode($list));
+									break;
+								}
+							} else {
+								if (isset($user->subscriber_id)) {
+									$user_info = array();
+									if (isset($user->WebSocket)) {
+										$user_info["WebSocket"] = $user->WebSocket;
+									} else {
+										$user_info["WebSocket"] = "";
+									}
+									if (isset($user->remoteAddress)) {
+										$user_info["remoteAddress"] = $user->remoteAddress;
+									} else {
+										$user_info["remoteAddress"] = "";
+									}
+									if (isset($user->subscriber_id)) {
+										$user_info["WebSocket"] = $user->subscriber_id;
+									} else {
+										$user_info["WebSocket"] = "";
+									}
+									if (isset($user->resourceId)) {
+										$user_info["resourceId"] = $user->resourceId;
+									} else {
+										$user_info["resourceId"] = "";
+									}
+									if (isset($user->system_id)) {
+										$user_info["system_id"] = $user->system_id;
+									} else {
+										$user_info["system_id"] = "";
+									}
+									if (isset($user->user_type)) {
+										$user_info["user_type"] = $user->user_type;
+									} else {
+										$user_info["user_type"] = "";
+									}
+									if (isset($user->current_url)) {
+										$user_info["current_url"] = $user->current_url;
+									} else {
+										$user_info["current_url"] = "";
+									}
+									if (isset($user->current_method)) {
+										$user_info["current_method"] = $user->current_method;
+									} else {
+										$user_info["current_method"] = "";
+									}
+									if (isset($user->visit_time)) {
+										$user_info["visit_time"] = $user->visit_time;
+									} else {
+										$user_info["visit_time"] = "";
+									}
+									if (isset($user->visit_timestamp)) {
+										$user_info["visit_timestamp"] = $user->visit_timestamp;
+									} else {
+										$user_info["visit_timestamp"] = "";
+									}
+									$list[$user->subscriber_id] = $user_info;
+								}
+							}
+						}
+						$sdata = array('message' => json_encode(array("clients" => $list, "message_type" => "online_users")));
+						$client->send(json_encode($sdata));
+					}
+				}
 			}
 
 		} else {
@@ -490,7 +652,7 @@ class Server implements MessageComponentInterface
 	{
 		// Send the message
 		$user->send($message);
-
+		output('info', $message);
 		// We have to check if event callback must be called
 		if (!empty($this->CI->codeigniter_websocket->callback['event'])) {
 
