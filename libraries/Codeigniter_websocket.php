@@ -310,7 +310,8 @@ class Server implements MessageComponentInterface
 
 					if (empty($auth) || !is_integer($auth)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure');
-						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid ID or Password.')));
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid ID or Password."))));
+						$client->send($data);
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
 						$client->close(1006);
 					}
@@ -325,14 +326,15 @@ class Server implements MessageComponentInterface
 					$client->visit_timestamp = time();
 
 					if ($this->CI->codeigniter_websocket->auth) {
-						$data = json_encode(array("type" => "token", "token" => AUTHORIZATION::generateToken($client->resourceId)));
+						$token = AUTHORIZATION::generateToken($client->resourceId);
+						$data = json_encode(array("message" => json_encode(array("message_type" => "token", "token" => $token))));
+						output('success', 'Client (' . $client->resourceId . ') authentication success');
 						$this->send_message($client, $data, $client);
 					}
 
 					// Output
 					if ($this->CI->codeigniter_websocket->debug) {
 						output('success', 'Client (' . $client->resourceId . ') authentication success');
-						output('success', 'Token : ' . AUTHORIZATION::generateToken($client->resourceId));
 					}
 				}
 
@@ -361,7 +363,8 @@ class Server implements MessageComponentInterface
 
 				} else {
 
-					$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+					$client->send($data);
 				}
 
 			}
@@ -388,7 +391,8 @@ class Server implements MessageComponentInterface
 
 				} else {
 
-					$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+					$client->send($data);
 				}
 
 			}
@@ -415,7 +419,8 @@ class Server implements MessageComponentInterface
 
 				} else {
 
-					$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+					$client->send($data);
 				}
 
 			}
@@ -435,7 +440,8 @@ class Server implements MessageComponentInterface
 
 					if (!valid_jwt($datas->token)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
-						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+						$client->send($data);
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
 						$client->close(1006);
 						$pass = false;
@@ -481,7 +487,8 @@ class Server implements MessageComponentInterface
 						$pass = true;
 					} elseif (!valid_jwt($datas->token)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
-						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+						$client->send($data);
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
 						$client->close(1006);
 						$pass = false;
