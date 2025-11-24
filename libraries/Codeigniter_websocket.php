@@ -308,7 +308,7 @@ class Server implements MessageComponentInterface
 
 					// Verify authentication
 
-					if (empty($auth) or !is_integer($auth)) {
+					if (empty($auth) || !is_integer($auth)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure');
 						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid ID or Password.')));
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
