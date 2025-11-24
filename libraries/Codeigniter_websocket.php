@@ -341,7 +341,14 @@ class Server implements MessageComponentInterface
 
 			if (!empty($datas->type) && $datas->type == 'roomjoin') {
 
-				if (valid_jwt($datas->token) != false) {
+				$token_valid = false;
+				if (isset($client->user_type) && $client->user_type == 'exe_user') {
+					$token_valid = true;
+				} elseif (valid_jwt($datas->token) != false) {
+					$token_valid = true;
+				}
+
+				if ($token_valid) {
 
 					if (!empty($this->CI->codeigniter_websocket->callback['roomjoin'])) {
 
@@ -361,7 +368,14 @@ class Server implements MessageComponentInterface
 
 			if (!empty($datas->type) && $datas->type == 'roomleave') {
 
-				if (valid_jwt($datas->token) != false) {
+				$token_valid = false;
+				if (isset($client->user_type) && $client->user_type == 'exe_user') {
+					$token_valid = true;
+				} elseif (valid_jwt($datas->token) != false) {
+					$token_valid = true;
+				}
+
+				if ($token_valid) {
 
 					if (!empty($this->CI->codeigniter_websocket->callback['roomleave'])) {
 
@@ -381,7 +395,14 @@ class Server implements MessageComponentInterface
 
 			if (!empty($datas->type) && $datas->type == 'roomchat') {
 
-				if (valid_jwt($datas->token) != false) {
+				$token_valid = false;
+				if (isset($client->user_type) && $client->user_type == 'exe_user') {
+					$token_valid = true;
+				} elseif (valid_jwt($datas->token) != false) {
+					$token_valid = true;
+				}
+
+				if ($token_valid) {
 
 					if (!empty($this->CI->codeigniter_websocket->callback['roomchat'])) {
 
@@ -456,7 +477,9 @@ class Server implements MessageComponentInterface
 
 				if ($this->CI->codeigniter_websocket->auth) {
 
-					if (!valid_jwt($datas->token)) {
+					if (isset($client->user_type) && $client->user_type == 'exe_user') {
+						$pass = true;
+					} elseif (!valid_jwt($datas->token)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
 						$client->send(json_encode(array("type" => "error", "msg" => 'Invalid Token.')));
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
