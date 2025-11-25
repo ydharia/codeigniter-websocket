@@ -307,17 +307,32 @@ class Server implements MessageComponentInterface
 					$event = call_user_func_array($this->CI->codeigniter_websocket->callback['event'], array($datas));
 
 					// Verify authentication
+					$auth_data = is_object($auth) ? (array) $auth : $auth;
+					$auth_error = 1;
+					$auth_message = 'Invalid ID or Password.';
+					$auth_user_id = null;
 
-					if (empty($auth) || !is_integer($auth)) {
+					if (is_array($auth_data)) {
+						$auth_error = isset($auth_data['error']) ? (int) $auth_data['error'] : $auth_error;
+						$auth_message = isset($auth_data['message']) ? $auth_data['message'] : $auth_message;
+						$auth_user_id = isset($auth_data['user_id']) ? (int) $auth_data['user_id'] : $auth_user_id;
+					} elseif (is_numeric($auth_data)) {
+						// Backward compatibility: numeric return treated as user id
+						$auth_error = 0;
+						$auth_user_id = (int) $auth_data;
+					}
+
+					if ($auth_error !== 0 || empty($auth_user_id)) {
 						output('error', 'Client (' . $client->resourceId . ') authentication failure');
-						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid ID or Password."))));
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => $auth_message))));
 						$client->send($data);
 						// Closing client connexion with error code "CLOSE_ABNORMAL"
 						$client->close(1006);
+						return;
 					}
 
 					// Add UID to associative array of subscribers
-					$client->subscriber_id = $auth;
+					$client->subscriber_id = $auth_user_id;
 					$client->user_type = isset($datas->user_type) ? $datas->user_type : "";
 					$client->system_id = isset($datas->system_id) ? $datas->system_id : "";
 					$client->current_url = isset($datas->current_url) ? $datas->current_url : "";
