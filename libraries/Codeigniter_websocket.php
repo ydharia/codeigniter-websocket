@@ -465,6 +465,14 @@ class Server implements MessageComponentInterface
 
 				if ($pass) {
 					if (!empty($message)) {
+						$sanitized_message = $message;
+						if (isset($datas->token)) {
+							$decoded_message = json_decode($message, true);
+							if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_message)) {
+								unset($decoded_message['token']);
+								$sanitized_message = json_encode($decoded_message);
+							}
+						}
 
 						// We look arround all clients
 						foreach ($this->clients as $user) {
@@ -472,17 +480,17 @@ class Server implements MessageComponentInterface
 							// Broadcast to single user
 							if (!empty($datas->recipient_id)) {
 								if (isset($user->subscriber_id) && $user->subscriber_id == $datas->recipient_id) {
-									$this->send_message($user, $message, $client);
+									$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
 									break;
 								}
 							} else {
 								// Broadcast to everybody
 								if ($broadcast) {
-									$this->send_message($user, $message, $client);
+									$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
 								} else {
 									// Broadcast to everybody except us
 									if ($client !== $user) {
-										$this->send_message($user, $message, $client);
+										$this->send_message($user, $sanitized_message, $client);
 									}
 								}
 							}
