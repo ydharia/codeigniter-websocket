@@ -164,14 +164,29 @@ class Codeigniter_websocket
 		if ($this->timer != false) {
 			$this->server->loop->addPeriodicTimer($this->timer_interval, function () {
 				if (!empty($this->callback['citimer'])) {
-					call_user_func_array($this->callback['citimer'], array(date('d-m-Y h:i:s a', time())));
+					try {
+						call_user_func_array($this->callback['citimer'], array(date('d-m-Y h:i:s a', time())));
+					} catch (\Throwable $e) {
+						log_message('error', 'Timer callback error: '.$e->getMessage());
+					}
 				}
 			});
-
 		}
 
 		// Run the socket connection !
-		$this->server->run();
+		// ⭐ CRASH-PROOF MAIN LOOP
+		while (true) {
+			try {
+				$this->server->run();
+			} catch (\Throwable $e) {
+				log_message('error', 'WebSocket crashed: ' . $e->getMessage());
+				if ($this->debug) {
+					output('fatal', 'WebSocket crashed — restarting: ' . $e->getMessage());
+				}
+				sleep(1);
+				continue;
+			}
+		}
 	}
 
 	/**
@@ -281,249 +296,311 @@ class Server implements MessageComponentInterface
 	 */
 	public function onMessage(ConnectionInterface $client, $message)
 	{
-		// Broadcast var
-		$broadcast = false;
+		try {
+			// Broadcast var
+			$broadcast = false;
 
-		// Check if received var is json format
-		if (valid_json($message)) {
-			// If true, we have to decode it
-			$datas = json_decode($message);
+			// Check if received var is json format
+			if (valid_json($message)) {
+				// If true, we have to decode it
+				$datas = json_decode($message);
 
-			// Once we decoded it, we check look for global broadcast
-			$broadcast = (!empty($datas->broadcast) and $datas->broadcast == true) ? true : false;
+				// Once we decoded it, we check look for global broadcast
+				$broadcast = (!empty($datas->broadcast) and $datas->broadcast == true) ? true : false;
 
-			// Count real clients numbers (-1 for server)
-			$clients = count($this->clients) - 1;
+				// Count real clients numbers (-1 for server)
+				$clients = count($this->clients) - 1;
 
-			// Here we have to reassign the client ressource ID, this will allow us to send message to specified client.
+				// Here we have to reassign the client ressource ID, this will allow us to send message to specified client.
 
-			if (!empty($datas->type) && $datas->type == 'socket') {
+				if (!empty($datas->type) && $datas->type == 'socket') {
 
-				if (!empty($this->CI->codeigniter_websocket->callback['auth'])) {
-
-					// Call user personnal callback
-					$datas->resourceId = $client->resourceId;
-					$auth = call_user_func_array($this->CI->codeigniter_websocket->callback['auth'], array($datas));
-					$event = call_user_func_array($this->CI->codeigniter_websocket->callback['event'], array($datas));
-
-					// Verify authentication
-					$auth_data = is_object($auth) ? (array) $auth : $auth;
-					$auth_error = 1;
-					$auth_message = 'Invalid ID or Password.';
-					$auth_user_id = null;
-
-					if (is_array($auth_data)) {
-						$auth_error = isset($auth_data['error']) ? (int) $auth_data['error'] : $auth_error;
-						$auth_message = isset($auth_data['message']) ? $auth_data['message'] : $auth_message;
-						$auth_user_id = isset($auth_data['user_id']) ? (int) $auth_data['user_id'] : $auth_user_id;
-					} elseif (is_numeric($auth_data)) {
-						// Backward compatibility: numeric return treated as user id
-						$auth_error = 0;
-						$auth_user_id = (int) $auth_data;
-					}
-
-					if ($auth_error !== 0 || empty($auth_user_id)) {
-						output('error', 'Client (' . $client->resourceId . ') authentication failure');
-						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => $auth_message))));
-						$client->send($data);
-						// Closing client connexion with error code "CLOSE_ABNORMAL"
-						$client->close(1006);
-						return;
-					}
-
-					// Add UID to associative array of subscribers
-					$client->subscriber_id = $auth_user_id;
-					$client->user_type = isset($datas->user_type) ? $datas->user_type : "";
-					$client->system_id = isset($datas->system_id) ? $datas->system_id : "";
-					$client->current_url = isset($datas->current_url) ? $datas->current_url : "";
-					$client->current_method = isset($datas->current_method) ? $datas->current_method : "";
-					$client->visit_time = date("Y-m-d H:i:s");
-					$client->visit_timestamp = time();
-
-					if ($this->CI->codeigniter_websocket->auth) {
-						$token = AUTHORIZATION::generateToken($client->resourceId);
-						$data = json_encode(array("message" => json_encode(array("message_type" => "token", "token" => $token))));
-						output('success', 'Client (' . $client->resourceId . ') authentication success');
-						$this->send_message($client, $data, $client);
-					}
-
-					// Output
-					if ($this->CI->codeigniter_websocket->debug) {
-						output('success', 'Client (' . $client->resourceId . ') authentication success');
-					}
-				}
-
-			}
-
-
-			if (!empty($datas->type) && $datas->type == 'roomjoin') {
-
-				$token_valid = false;
-				if (isset($client->user_type) && $client->user_type == 'exe_user') {
-					$token_valid = true;
-				} elseif (valid_jwt($datas->token) != false) {
-					$token_valid = true;
-				}
-
-				if ($token_valid) {
-
-					if (!empty($this->CI->codeigniter_websocket->callback['roomjoin'])) {
+					if (!empty($this->CI->codeigniter_websocket->callback['auth'])) {
 
 						// Call user personnal callback
-						call_user_func_array($this->CI->codeigniter_websocket->callback['roomjoin'],
-							array($datas, $client));
+						$datas->resourceId = $client->resourceId;
+						$auth = call_user_func_array($this->CI->codeigniter_websocket->callback['auth'], array($datas));
+						$event = call_user_func_array($this->CI->codeigniter_websocket->callback['event'], array($datas));
 
-					}
+						// Verify authentication
+						$auth_data = is_object($auth) ? (array) $auth : $auth;
+						$auth_error = 1;
+						$auth_message = 'Invalid ID or Password.';
+						$auth_user_id = null;
 
-
-				} else {
-
-					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
-					$client->send($data);
-				}
-
-			}
-
-			if (!empty($datas->type) && $datas->type == 'roomleave') {
-
-				$token_valid = false;
-				if (isset($client->user_type) && $client->user_type == 'exe_user') {
-					$token_valid = true;
-				} elseif (valid_jwt($datas->token) != false) {
-					$token_valid = true;
-				}
-
-				if ($token_valid) {
-
-					if (!empty($this->CI->codeigniter_websocket->callback['roomleave'])) {
-
-						// Call user personnal callback
-						call_user_func_array($this->CI->codeigniter_websocket->callback['roomleave'],
-							array($datas, $client));
-
-					}
-
-
-				} else {
-
-					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
-					$client->send($data);
-				}
-
-			}
-
-			if (!empty($datas->type) && $datas->type == 'roomchat') {
-
-				$token_valid = false;
-				if (isset($client->user_type) && $client->user_type == 'exe_user') {
-					$token_valid = true;
-				} elseif (valid_jwt($datas->token) != false) {
-					$token_valid = true;
-				}
-
-				if ($token_valid) {
-
-					if (!empty($this->CI->codeigniter_websocket->callback['roomchat'])) {
-
-						// Call user personnal callback
-						call_user_func_array($this->CI->codeigniter_websocket->callback['roomchat'],
-							array($datas, $client));
-
-					}
-
-
-				} else {
-
-					$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
-					$client->send($data);
-				}
-
-			}
-
-
-			// Now this is the management of messages destinations, at this moment, 4 possibilities :
-			// 1 - Message is not an array OR message has no destination (broadcast to everybody except us)
-			// 2 - Message is an array and have destination (broadcast to single user)
-			// 3 - Message is an array and don't have specified destination (broadcast to everybody except us)
-			// 4 - Message is an array and we wan't to broadcast to ourselves too (broadcast to everybody)
-
-			if (!empty($datas->type) && $datas->type == 'chat') {
-
-				$pass = true;
-
-				if ($this->CI->codeigniter_websocket->auth) {
-
-					if (!valid_jwt($datas->token)) {
-						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
-						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
-						$client->send($data);
-						// Closing client connexion with error code "CLOSE_ABNORMAL"
-						$client->close(1006);
-						$pass = false;
-					}
-				}
-
-				if ($pass) {
-					if (!empty($message)) {
-						$sanitized_message = $message;
-						if (isset($datas->token)) {
-							$decoded_message = json_decode($message, true);
-							if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_message)) {
-								unset($decoded_message['token']);
-								$sanitized_message = json_encode($decoded_message);
-							}
+						if (is_array($auth_data)) {
+							$auth_error = isset($auth_data['error']) ? (int) $auth_data['error'] : $auth_error;
+							$auth_message = isset($auth_data['message']) ? $auth_data['message'] : $auth_message;
+							$auth_user_id = isset($auth_data['user_id']) ? (int) $auth_data['user_id'] : $auth_user_id;
+						} elseif (is_numeric($auth_data)) {
+							// Backward compatibility: numeric return treated as user id
+							$auth_error = 0;
+							$auth_user_id = (int) $auth_data;
 						}
 
-						// We look arround all clients
-						foreach ($this->clients as $user) {
+						if ($auth_error !== 0 || empty($auth_user_id)) {
+							output('error', 'Client (' . $client->resourceId . ') authentication failure');
+							$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => $auth_message))));
+							$client->send($data);
+							// Closing client connexion with error code "CLOSE_ABNORMAL"
+							$client->close(1006);
+							return;
+						}
 
-							// Broadcast to single user
-							if (!empty($datas->recipient_id)) {
-								if (isset($user->subscriber_id) && $user->subscriber_id == $datas->recipient_id) {
-									$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
-									break;
+						// Add UID to associative array of subscribers
+						$client->subscriber_id = $auth_user_id;
+						$client->user_type = isset($datas->user_type) ? $datas->user_type : "";
+						$client->system_id = isset($datas->system_id) ? $datas->system_id : "";
+						$client->current_url = isset($datas->current_url) ? $datas->current_url : "";
+						$client->current_method = isset($datas->current_method) ? $datas->current_method : "";
+						$client->visit_time = date("Y-m-d H:i:s");
+						$client->visit_timestamp = time();
+
+						if ($this->CI->codeigniter_websocket->auth) {
+							$token = AUTHORIZATION::generateToken($client->resourceId);
+							$data = json_encode(array("message" => json_encode(array("message_type" => "token", "token" => $token))));
+							output('success', 'Client (' . $client->resourceId . ') authentication success');
+							$this->send_message($client, $data, $client);
+						}
+
+						// Output
+						if ($this->CI->codeigniter_websocket->debug) {
+							output('success', 'Client (' . $client->resourceId . ') authentication success');
+						}
+					}
+
+				}
+
+
+				if (!empty($datas->type) && $datas->type == 'roomjoin') {
+
+					$token_valid = false;
+					if (isset($client->user_type) && $client->user_type == 'exe_user') {
+						$token_valid = true;
+					} elseif (valid_jwt($datas->token) != false) {
+						$token_valid = true;
+					}
+
+					if ($token_valid) {
+
+						if (!empty($this->CI->codeigniter_websocket->callback['roomjoin'])) {
+
+							// Call user personnal callback
+							call_user_func_array($this->CI->codeigniter_websocket->callback['roomjoin'],
+								array($datas, $client));
+
+						}
+
+
+					} else {
+
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+						$client->send($data);
+					}
+
+				}
+
+				if (!empty($datas->type) && $datas->type == 'roomleave') {
+
+					$token_valid = false;
+					if (isset($client->user_type) && $client->user_type == 'exe_user') {
+						$token_valid = true;
+					} elseif (valid_jwt($datas->token) != false) {
+						$token_valid = true;
+					}
+
+					if ($token_valid) {
+
+						if (!empty($this->CI->codeigniter_websocket->callback['roomleave'])) {
+
+							// Call user personnal callback
+							call_user_func_array($this->CI->codeigniter_websocket->callback['roomleave'],
+								array($datas, $client));
+
+						}
+
+
+					} else {
+
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+						$client->send($data);
+					}
+
+				}
+
+				if (!empty($datas->type) && $datas->type == 'roomchat') {
+
+					$token_valid = false;
+					if (isset($client->user_type) && $client->user_type == 'exe_user') {
+						$token_valid = true;
+					} elseif (valid_jwt($datas->token) != false) {
+						$token_valid = true;
+					}
+
+					if ($token_valid) {
+
+						if (!empty($this->CI->codeigniter_websocket->callback['roomchat'])) {
+
+							// Call user personnal callback
+							call_user_func_array($this->CI->codeigniter_websocket->callback['roomchat'],
+								array($datas, $client));
+
+						}
+
+
+					} else {
+
+						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+						$client->send($data);
+					}
+
+				}
+
+
+				// Now this is the management of messages destinations, at this moment, 4 possibilities :
+				// 1 - Message is not an array OR message has no destination (broadcast to everybody except us)
+				// 2 - Message is an array and have destination (broadcast to single user)
+				// 3 - Message is an array and don't have specified destination (broadcast to everybody except us)
+				// 4 - Message is an array and we wan't to broadcast to ourselves too (broadcast to everybody)
+
+				if (!empty($datas->type) && $datas->type == 'chat') {
+
+					$pass = true;
+
+					if ($this->CI->codeigniter_websocket->auth) {
+
+						if (!valid_jwt($datas->token)) {
+							output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
+							$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+							$client->send($data);
+							// Closing client connexion with error code "CLOSE_ABNORMAL"
+							$client->close(1006);
+							$pass = false;
+						}
+					}
+
+					if ($pass) {
+						if (!empty($message)) {
+							$sanitized_message = $message;
+							if (isset($datas->token)) {
+								$decoded_message = json_decode($message, true);
+								if (json_last_error() === JSON_ERROR_NONE && is_array($decoded_message)) {
+									unset($decoded_message['token']);
+									$sanitized_message = json_encode($decoded_message);
 								}
-							} else {
-								// Broadcast to everybody
-								if ($broadcast) {
-									$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
+							}
+
+							// We look arround all clients
+							foreach ($this->clients as $user) {
+
+								// Broadcast to single user
+								if (!empty($datas->recipient_id)) {
+									if (isset($user->subscriber_id) && $user->subscriber_id == $datas->recipient_id) {
+										$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
+										break;
+									}
 								} else {
-									// Broadcast to everybody except us
-									if ($client !== $user) {
-										$this->send_message($user, $sanitized_message, $client);
+									// Broadcast to everybody
+									if ($broadcast) {
+										$this->send_message($user, $client === $user ? $message : $sanitized_message, $client);
+									} else {
+										// Broadcast to everybody except us
+										if ($client !== $user) {
+											$this->send_message($user, $sanitized_message, $client);
+										}
 									}
 								}
 							}
 						}
 					}
+
 				}
 
-			}
+				if (!empty($datas->type) && $datas->type == 'get_connected_list') {
 
-			if (!empty($datas->type) && $datas->type == 'get_connected_list') {
+					$pass = true;
 
-				$pass = true;
+					if ($this->CI->codeigniter_websocket->auth) {
 
-				if ($this->CI->codeigniter_websocket->auth) {
-
-					if (isset($client->user_type) && $client->user_type == 'exe_user') {
-						$pass = true;
-					} elseif (!valid_jwt($datas->token)) {
-						output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
-						$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
-						$client->send($data);
-						// Closing client connexion with error code "CLOSE_ABNORMAL"
-						$client->close(1006);
-						$pass = false;
+						if (isset($client->user_type) && $client->user_type == 'exe_user') {
+							$pass = true;
+						} elseif (!valid_jwt($datas->token)) {
+							output('error', 'Client (' . $client->resourceId . ') authentication failure. Invalid Token');
+							$data = json_encode(array("message" => json_encode(array("message_type" => "error", "message" => "Invalid Token."))));
+							$client->send($data);
+							// Closing client connexion with error code "CLOSE_ABNORMAL"
+							$client->close(1006);
+							$pass = false;
+						}
 					}
-				}
 
-				if ($pass) {
-					if (!empty($message)) {
-						$list = array();
-						foreach ($this->clients as $user) {
-							if ($datas->message != "" && $datas->message != NULL) {
-								if (isset($user->system_id) && trim($datas->message) == trim($user->system_id)) {
+					if ($pass) {
+						if (!empty($message)) {
+							$list = array();
+							foreach ($this->clients as $user) {
+								if ($datas->message != "" && $datas->message != NULL) {
+									if (isset($user->system_id) && trim($datas->message) == trim($user->system_id)) {
+										if (isset($user->subscriber_id)) {
+											$user_info = array();
+											if (isset($user->WebSocket)) {
+												$user_info["WebSocket"] = $user->WebSocket;
+											} else {
+												$user_info["WebSocket"] = "";
+											}
+											if (isset($user->remoteAddress)) {
+												$user_info["remoteAddress"] = $user->remoteAddress;
+											} else {
+												$user_info["remoteAddress"] = "";
+											}
+											if (isset($user->subscriber_id)) {
+												$user_info["WebSocket"] = $user->subscriber_id;
+											} else {
+												$user_info["WebSocket"] = "";
+											}
+											if (isset($user->resourceId)) {
+												$user_info["resourceId"] = $user->resourceId;
+											} else {
+												$user_info["resourceId"] = "";
+											}
+											if (isset($user->system_id)) {
+												$user_info["system_id"] = $user->system_id;
+											} else {
+												$user_info["system_id"] = "";
+											}
+											if (isset($user->user_type)) {
+												$user_info["user_type"] = $user->user_type;
+											} else {
+												$user_info["user_type"] = "";
+											}
+											if (isset($user->current_url)) {
+												$user_info["current_url"] = $user->current_url;
+											} else {
+												$user_info["current_url"] = "";
+											}
+											if (isset($user->current_method)) {
+												$user_info["current_method"] = $user->current_method;
+											} else {
+												$user_info["current_method"] = "";
+											}
+											if (isset($user->visit_time)) {
+												$user_info["visit_time"] = $user->visit_time;
+											} else {
+												$user_info["visit_time"] = "";
+											}
+											if (isset($user->visit_timestamp)) {
+												$user_info["visit_timestamp"] = $user->visit_timestamp;
+											} else {
+												$user_info["visit_timestamp"] = "";
+											}
+											$list[$user->subscriber_id] = $user_info;
+										}
+										// $list[$user->subscriber_id] = array("WebSocket" => $user->WebSocket, "remoteAddress" => $user->remoteAddress, "subscriber_id" => $user->subscriber_id, "resourceId" => $user->resourceId, "system_id" => $user->system_id, "user_type" => $user->user_type, "current_url" => $user->current_url, "current_method" => $user->current_method, "visit_time" => $user->visit_time, "visit_timestamp" => $user->visit_timestamp);
+										// output('info', "Single Info");
+										// output('info', $datas->message);
+										// output('info', json_encode($list));
+										break;
+									}
+								} else {
 									if (isset($user->subscriber_id)) {
 										$user_info = array();
 										if (isset($user->WebSocket)) {
@@ -578,81 +655,26 @@ class Server implements MessageComponentInterface
 										}
 										$list[$user->subscriber_id] = $user_info;
 									}
-									// $list[$user->subscriber_id] = array("WebSocket" => $user->WebSocket, "remoteAddress" => $user->remoteAddress, "subscriber_id" => $user->subscriber_id, "resourceId" => $user->resourceId, "system_id" => $user->system_id, "user_type" => $user->user_type, "current_url" => $user->current_url, "current_method" => $user->current_method, "visit_time" => $user->visit_time, "visit_timestamp" => $user->visit_timestamp);
-									// output('info', "Single Info");
-									// output('info', $datas->message);
-									// output('info', json_encode($list));
-									break;
-								}
-							} else {
-								if (isset($user->subscriber_id)) {
-									$user_info = array();
-									if (isset($user->WebSocket)) {
-										$user_info["WebSocket"] = $user->WebSocket;
-									} else {
-										$user_info["WebSocket"] = "";
-									}
-									if (isset($user->remoteAddress)) {
-										$user_info["remoteAddress"] = $user->remoteAddress;
-									} else {
-										$user_info["remoteAddress"] = "";
-									}
-									if (isset($user->subscriber_id)) {
-										$user_info["WebSocket"] = $user->subscriber_id;
-									} else {
-										$user_info["WebSocket"] = "";
-									}
-									if (isset($user->resourceId)) {
-										$user_info["resourceId"] = $user->resourceId;
-									} else {
-										$user_info["resourceId"] = "";
-									}
-									if (isset($user->system_id)) {
-										$user_info["system_id"] = $user->system_id;
-									} else {
-										$user_info["system_id"] = "";
-									}
-									if (isset($user->user_type)) {
-										$user_info["user_type"] = $user->user_type;
-									} else {
-										$user_info["user_type"] = "";
-									}
-									if (isset($user->current_url)) {
-										$user_info["current_url"] = $user->current_url;
-									} else {
-										$user_info["current_url"] = "";
-									}
-									if (isset($user->current_method)) {
-										$user_info["current_method"] = $user->current_method;
-									} else {
-										$user_info["current_method"] = "";
-									}
-									if (isset($user->visit_time)) {
-										$user_info["visit_time"] = $user->visit_time;
-									} else {
-										$user_info["visit_time"] = "";
-									}
-									if (isset($user->visit_timestamp)) {
-										$user_info["visit_timestamp"] = $user->visit_timestamp;
-									} else {
-										$user_info["visit_timestamp"] = "";
-									}
-									$list[$user->subscriber_id] = $user_info;
 								}
 							}
+							$sdata = array('message' => json_encode(array("clients" => $list, "message_type" => "online_users")));
+							$client->send(json_encode($sdata));
 						}
-						$sdata = array('message' => json_encode(array("clients" => $list, "message_type" => "online_users")));
-						$client->send(json_encode($sdata));
 					}
 				}
+
+			} else {
+				output('error', 'Client (' . $client->resourceId . ') Invalid json.');
+				// Closing client connexion with error code "CLOSE_ABNORMAL"
+				$client->close(1006);
 			}
-
-		} else {
-			output('error', 'Client (' . $client->resourceId . ') Invalid json.');
-			// Closing client connexion with error code "CLOSE_ABNORMAL"
-			$client->close(1006);
+		} catch (\Throwable $e) {
+			log_message('error', 'onMessage fatal error: '.$e->getMessage());
+			try { 
+				$client->close(); 
+			} catch (\Throwable $e2) {}
+	
 		}
-
 	}
 
 	/**
@@ -669,7 +691,11 @@ class Server implements MessageComponentInterface
 		}
 
 		if (!empty($this->CI->codeigniter_websocket->callback['close'])) {
-			call_user_func_array($this->CI->codeigniter_websocket->callback['close'], array($connection));
+			try {
+				call_user_func_array($this->CI->codeigniter_websocket->callback['close'], array($connection));
+			} catch (\Throwable $e) {
+				log_message('error', 'Close callback error: '.$e->getMessage());
+			}
 		}
 		// Detach client from SplObjectStorage
 		$this->clients->detach($connection);
@@ -704,14 +730,28 @@ class Server implements MessageComponentInterface
 	protected function send_message($user = array(), $message = array(), $client = array())
 	{
 		// Send the message
-		$user->send($message);
+		try {
+			$user->send($message);
+		} catch (\Throwable $e) {
+			log_message('error', 'Send failed to client '.$user->resourceId.' : '.$e->getMessage());
+		
+			// Remove dead connection
+			if ($this->clients->contains($user)) {
+				$this->clients->detach($user);
+			}
+		
+			return; // Do not continue further
+		}
 		output('info', $message);
 		// We have to check if event callback must be called
 		if (!empty($this->CI->codeigniter_websocket->callback['event'])) {
 
+			try {
+				call_user_func_array($this->CI->codeigniter_websocket->callback['event'], array((valid_json($message) ? json_decode($message) : $message)));
+			} catch (\Throwable $e) {
+				log_message('error', 'Event callback error: '.$e->getMessage());
+			}
 			// At this moment we have to check if we have authent callback defined
-			call_user_func_array($this->CI->codeigniter_websocket->callback['event'],
-				array((valid_json($message) ? json_decode($message) : $message)));
 
 			// Output
 			if ($this->CI->codeigniter_websocket->debug) {
